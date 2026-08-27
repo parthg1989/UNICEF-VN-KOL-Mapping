@@ -427,7 +427,8 @@ function avatarHtml(d){
   const init=initials(d.name);const p=d._primary;
   const cands=[];
   if(d.photo_url)cands.push(d.photo_url);
-  const order=[p,"instagram","tiktok","youtube","facebook"].filter(Boolean);const seen={};
+  // TikTok first — unavatar.io/tiktok reliably returns 200; instagram returns 403
+  const order=["tiktok",p,"instagram","youtube","facebook"].filter(Boolean);const seen={};
   for(const pl of order){if(seen[pl])continue;seen[pl]=1;const o=d[pl];
     if(o&&o.username){const u=encodeURIComponent(o.username.replace(/^@/,""));
       if(pl==="instagram")cands.push(`https://unavatar.io/instagram/${u}?fallback=false`);
@@ -435,8 +436,9 @@ function avatarHtml(d){
       else if(pl==="youtube")cands.push(`https://unavatar.io/youtube/${u}?fallback=false`);
       else if(pl==="facebook")cands.push(`https://unavatar.io/facebook/${u}?fallback=false`);}}
   const ppIcon=p?`<span class="pp-badge" style="background:${p==='instagram'?'#DD2A7B':PCOLOR[p]}" title="Best-engagement platform: ${PLABEL[p]}"><span style="font-size:8px;color:#fff;font-weight:800">${PSHORT[p]}</span></span>`:"";
-  if(cands.length){const chain=JSON.stringify(cands).replace(/"/g,"&quot;");
-    return `<div class="avatar"><img src="${cands[0]}" loading="lazy" alt="${d.name}" data-cands="${chain}" data-i="0" onerror="(function(im){var c=JSON.parse(im.getAttribute('data-cands'));var i=+im.getAttribute('data-i')+1;if(i&lt;c.length){im.setAttribute('data-i',i);im.src=c[i];}else{im.style.display='none';im.nextElementSibling.style.display='flex';}})(this)"><span class="initials" style="display:none">${init}</span>${ppIcon}</div>`;}
+  const key="ava2_"+norm(d.name);
+  if(cands.length){const candsAttr=JSON.stringify(cands).replace(/"/g,"&quot;");
+    return `<div class="avatar" data-ava-key="${key}" data-ava-cands="${candsAttr}"><img src="" alt="${d.name}" style="display:none" loading="lazy"><span class="initials">${init}</span>${ppIcon}</div>`;}
   return `<div class="avatar"><span class="initials">${init}</span>${ppIcon}</div>`;
 }
 
@@ -662,4 +664,79 @@ render();
   document.addEventListener("click",hide,true);
 })();
 
+
+
+// ── Avatar Queue Loader ────────────────────────────────────────────
+(function(){
+  const CACHE='ava2_';
+  const queue=[];let active=0;const MAX=8;
+
+  async function tryUrl(url,attempt){
+    attempt=attempt||0;
+    try{
+      const r=await fetch(url,{method:'HEAD',cache:'force-cache'});
+      if(r.ok)return url;
+      if(r.status===429&&attempt<3){await new Promise(r=>setTimeout(r,800*(attempt+1)));return tryUrl(url,attempt+1);}
+      return null;
+    }catch(e){return null;}
+  }
+
+  async function loadAvatar(div){
+    const key=div.dataset.avaKey;
+    const img=div.querySelector('img');
+    const span=div.querySelector('.initials');
+    if(!img||!key)return;
+    // check localStorage cache
+    let cached;try{cached=localStorage.getItem(CACHE+key);}catch(e){}
+    if(cached){img.src=cached;img.style.display='';if(span)span.style.display='none';return;}
+    let cands;try{cands=JSON.parse(div.dataset.avaCands||'[]');}catch(e){cands=[];}
+    for(const url of cands){
+      const ok=await tryUrl(url);
+      if(ok){img.src=ok;img.style.display='';if(span)span.style.display='none';
+        try{localStorage.setItem(CACHE+key,ok);}catch(e){}return;}
+    }
+    // all failed — show initials (already visible)
+  }
+
+  function next(){
+    while(active<MAX&&queue.length){
+      active++;
+      const div=queue.shift();
+      loadAvatar(div).finally(()=>{active--;next();});
+    }
+  }
+
+  function enqueue(div){
+    if(div.dataset.avaQueued)return;
+    div.dataset.avaQueued='1';
+    queue.push(div);next();
+  }
+
+  const obs=new IntersectionObserver(entries=>{
+    entries.forEach(e=>{if(e.isIntersecting){obs.unobserve(e.target);enqueue(e.target);}});
+  },{rootMargin:'400px'});
+
+  function observe(){
+    document.querySelectorAll('.avatar[data-ava-cands]').forEach(div=>{
+      if(!div.dataset.avaQueued)obs.observe(div);
+    });
+  }
+
+  // Hook into render() to observe new cards after re-render
+  const _render=window.render;
+  window.render=function(){_render.apply(this,arguments);setTimeout(observe,60);};
+
+  // Hook into openModal to immediately load modal avatar
+  const _openModal=window.openModal;
+  window.openModal=function(idx){
+    _openModal.apply(this,arguments);
+    setTimeout(()=>{
+      document.querySelectorAll('#modal .avatar[data-ava-cands]').forEach(div=>{
+        div.dataset.avaQueued='';enqueue(div);
+      });
+    },30);
+  };
+
+  observe();
+})();
 </script></body></html>
