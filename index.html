@@ -282,7 +282,8 @@ function computeScores(d){
   const plats=['instagram','tiktok','youtube','facebook'];
   // --- Engagement Score (0-100) ---
   const ers=plats.map(p=>d[p]&&d[p].er!=null?d[p].er:null).filter(v=>v!=null);
-  const bestEr=ers.length?Math.max(...ers):null;
+  let bestEr=ers.length?Math.max(...ers):null;
+  if(bestEr==null){const maxFol0=Math.max(...plats.map(p=>d[p]&&d[p].followers||0));if(maxFol0>=1000000)bestEr=1;else if(maxFol0>=500000)bestEr=1.5;else if(maxFol0>=100000)bestEr=2;else if(maxFol0>=10000)bestEr=3;else if(maxFol0>0)bestEr=5;}
   const erScore=bestEr!=null?Math.min(100,Math.round(bestEr/6*100)):null;
   const aqsVals=['instagram','tiktok'].map(p=>d[p]&&d[p].aqs!=null?d[p].aqs:null).filter(v=>v!=null);
   const aqsAvg=aqsVals.length?aqsVals.reduce((a,b)=>a+b,0)/aqsVals.length:null;
